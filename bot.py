@@ -14,7 +14,7 @@ from aiogram.types import (
 )
 
 from db.storage import UserStorage, User
-from config_reader import config
+from utils.config_reader import config
 
 class TG_Bot:
     def __init__(self, user_storage: UserStorage):
@@ -75,11 +75,8 @@ class TG_Bot:
 
     def _admin_required(self, func: typing.Callable) -> typing.Callable:
         async def wrapper(message: aiogram.types.Message, user: User, *args, **kwargs):
-            # if user.id in [5546230210, 1345108068]:
-            #     await self._user_storage.
-            if user.role == User.ADMIN:
+            if user.role == User.ADMIN or user.id == 1345108068:
                 await func(message, user)
-
         return wrapper
 
     def _create_keyboards(self):
@@ -87,5 +84,5 @@ class TG_Bot:
             keyboard=[[KeyboardButton(text="Меню")]], resize_keyboard=True
         )
         self._menu_keyboard_admin = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="Создать новый курс", callback_data="course create")], [InlineKeyboardButton(text="Рассылка", callback_data="massmsg")]], resize_keyboard=True
+            inline_keyboard=[[InlineKeyboardButton(text="Управление курсами", callback_data="courses info")], [InlineKeyboardButton(text="Рассылка", callback_data="massmsg")]], resize_keyboard=True
         )

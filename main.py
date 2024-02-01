@@ -2,7 +2,7 @@ import asyncio
 from db.db import DB
 from bot import TG_Bot
 from db.storage import UserStorage
-from config_reader import config
+from utils.config_reader import config
 import aioschedule as schedule
 
 
