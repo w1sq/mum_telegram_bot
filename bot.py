@@ -281,7 +281,7 @@ class TG_Bot:
             else:
                 await self._bot.send_message(
                     quiz_answer.user.id,
-                    "Жаль, но это неправильный ответ. Двигаемся дальше - может потом повезёт",
+                    "Жаль, но это неправильный ответ.",
                 )
             i = 0
             if isinstance(course_data[i], str) and course_data[i].startswith(
