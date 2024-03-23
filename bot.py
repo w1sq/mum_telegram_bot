@@ -273,7 +273,7 @@ class TG_Bot:
         if len(course_data) == 0:
             await self._bot.send_message(
                 quiz_answer.user.id,
-                "Поздравляем! Курс пройден. Вы всегда можете вернуться к нему",
+                "Congratulations! Course is completed, you are always able to rerun it",
                 reply_markup=self._to_menu_keyboard_user,
             )
         else:
@@ -281,12 +281,12 @@ class TG_Bot:
                 state_data["correct_option_id"] == quiz_answer.option_ids[0]
             ):  # TODO Комментарии к ответам
                 await self._bot.send_message(
-                    quiz_answer.user.id, "Правильно! Идём дальше"
+                    quiz_answer.user.id, "Correct! Next question"
                 )
             else:
                 await self._bot.send_message(
                     quiz_answer.user.id,
-                    "Жаль, но это неправильный ответ.",
+                    "It's a pity, you made a mistake",
                 )
             i = 0
             if isinstance(course_data[i], str) and course_data[i].startswith(
