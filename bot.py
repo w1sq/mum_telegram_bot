@@ -21,8 +21,10 @@ from utils.config_reader import config
 from utils.parser import (
     get_course_data,
     get_courses_names,
+    get_sections_names,
     get_course_info,
     delete_course,
+    get_course_path,
 )
 
 
@@ -35,6 +37,7 @@ class MassMsgState(StatesGroup):
 
 
 class CreateNewCourse(StatesGroup):
+    section = State()
     name = State()
     info = State()
     input_data = State()
@@ -125,46 +128,47 @@ class TG_Bot:
             "Курс успешно создан!", reply_markup=self._to_menu_keyboard_user
         )
 
-    async def _show_courses(self, call: CallbackQuery, user: User):
-        if user.role == User.ADMIN:
-            await call.message.edit_text(
-                "Панель управления курсами:", reply_markup=self._courses_keyboard_admin
-            )
-        else:
-            courses_names = get_courses_names()
-            courses_buttons = [
-                [
-                    InlineKeyboardButton(
-                        text=course_name, callback_data="?c" + course_name
-                    )
-                ]
-                for course_name in courses_names
+    async def _show_sections(self, call: CallbackQuery, user: User):
+        sections_names = get_sections_names()
+        sections_buttons = [
+            [
+                InlineKeyboardButton(
+                    text=sections_name, callback_data="?s" + sections_name
+                )
             ]
-            courses_buttons.append(
-                [InlineKeyboardButton(text="Меню", callback_data="show_menu")]
-            )
-            courses_keyboard_user = InlineKeyboardMarkup(
-                inline_keyboard=courses_buttons, resize_keyboard=True
-            )
-            await call.message.edit_text(
-                "Сейчас доступны следующие курсы:", reply_markup=courses_keyboard_user
-            )
+            for sections_name in sections_names
+        ]
+        sections_buttons.append(
+            [InlineKeyboardButton(text="Меню", callback_data="show_menu")]
+        )
+        sections_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=sections_buttons, resize_keyboard=True
+        )
+        await call.message.edit_text(
+            "Сейчас доступны следующие категории курсов:",
+            reply_markup=sections_keyboard,
+        )
 
-    async def _courses_lookup(self, call: CallbackQuery, user: User):
-        courses_names = get_courses_names()
+    async def _show_courses(self, call: CallbackQuery, user: User):
+        section_name = call.data[2:]
+        courses_names = get_courses_names(section_name)
         courses_buttons = [
             [InlineKeyboardButton(text=course_name, callback_data="?c" + course_name)]
             for course_name in courses_names
         ]
         courses_buttons.append(
-            [InlineKeyboardButton(text="Меню", callback_data="show_menu")]
+            [
+                InlineKeyboardButton(text="Назад", callback_data="sections_menu"),
+                InlineKeyboardButton(text="Меню", callback_data="show_menu"),
+            ]
         )
         courses_keyboard_user = InlineKeyboardMarkup(
             inline_keyboard=courses_buttons, resize_keyboard=True
         )
         await call.message.edit_text(
-            "Сейчас запущены эти курсы", reply_markup=courses_keyboard_user
-        )  # TODO сделать stash курсов, чтобы их можно было скрывать
+            "Сейчас доступны следующие курсы:",
+            reply_markup=courses_keyboard_user,
+        )
 
     async def _show_course_info(self, call: CallbackQuery, user: User):
         course_name = call.data[2:]
@@ -227,7 +231,7 @@ class TG_Bot:
 
     async def _get_course_file(self, call: CallbackQuery):
         course_name = call.data[2:]
-        file = FSInputFile(f"courses/{course_name}/text.txt")
+        file = FSInputFile(f"{get_course_path(course_name)}/text.txt")
         await call.message.answer_document(
             file, caption=course_name, reply_markup=self._to_menu_keyboard_user
         )
@@ -256,6 +260,7 @@ class TG_Bot:
             type="quiz",
             correct_option_id=correct_option_id,
             is_anonymous=False,
+            explanation=course_data[i].get("hint", "")[:200],
         )
         await state.set_state(QuizState.quiz)
         await state.update_data(course_name=course_name)
@@ -291,7 +296,7 @@ class TG_Bot:
                 await self._bot.send_audio(
                     quiz_answer.user.id,
                     aiogram.types.input_file.FSInputFile(
-                        f"courses/{state_data['course_name']}/{course_data[i][10:].strip()}"
+                        f"{get_course_path(state_data['course_name'])}/{course_data[i][10:].strip()}"
                     ),
                 )
                 i += 1
@@ -312,6 +317,7 @@ class TG_Bot:
                 type="quiz",
                 correct_option_id=correct_option_id,
                 is_anonymous=False,
+                explanation=course_data[i].get("hint", ""),
             )
             await state.update_data(correct_option_id=correct_option_id)
             await state.update_data(course_data=course_data[i + 1 :])
@@ -354,6 +360,10 @@ class TG_Bot:
             self._user_middleware(self._show_menu), Command("start")
         )
         self._dispatcher.callback_query.register(
+            self._callback_user_middleware(self._show_sections),
+            aiogram.F.data.startswith("sections_menu"),
+        )
+        self._dispatcher.callback_query.register(
             self._callback_user_middleware(self._show_courses),
             aiogram.F.data.startswith("courses_menu"),
         )
@@ -364,6 +374,10 @@ class TG_Bot:
         self._dispatcher.callback_query.register(
             self._callback_user_middleware(self._show_course_info),
             aiogram.F.data.startswith("?c"),
+        )
+        self._dispatcher.callback_query.register(
+            self._callback_user_middleware(self._show_courses),
+            aiogram.F.data.startswith("?s"),
         )
         self._dispatcher.callback_query.register(
             self._start_course, aiogram.F.data.startswith("?b")
@@ -378,10 +392,6 @@ class TG_Bot:
             self._get_course_file, aiogram.F.data.startswith("?f")
         )
         self._dispatcher.callback_query.register(
-            self._callback_user_middleware(self._courses_lookup),
-            aiogram.F.data.startswith("courses_lookup"),
-        )
-        self._dispatcher.callback_query.register(
             self._new_course_name, aiogram.F.data.startswith("upload_new_course")
         )
         self._dispatcher.callback_query.register(
@@ -390,7 +400,6 @@ class TG_Bot:
         self._dispatcher.callback_query.register(
             self._cancel, aiogram.F.data.startswith("cancel")
         )
-
         self._dispatcher.message.register(self._new_course_info, CreateNewCourse.name)
         self._dispatcher.message.register(
             self._new_course_content, CreateNewCourse.info
@@ -443,38 +452,22 @@ class TG_Bot:
         )
         self._menu_keyboard_user = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Курсы", callback_data="courses_menu")]
+                [InlineKeyboardButton(text="Курсы", callback_data="sections_menu")]
             ],
             resize_keyboard=True,
         )
         self._menu_keyboard_admin = InlineKeyboardMarkup(
             inline_keyboard=[
+                [InlineKeyboardButton(text="Курсы", callback_data="sections_menu")],
                 [
                     InlineKeyboardButton(
-                        text="Управление курсами", callback_data="courses_menu"
+                        text="Создать новый курс", callback_data="upload_new_course"
                     )
                 ],
                 [InlineKeyboardButton(text="Рассылка", callback_data="massmsg")],
             ],
             resize_keyboard=True,
         )
-        self._courses_keyboard_admin = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="Обзор курсов", callback_data="courses_lookup"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="Загрузить", callback_data="upload_new_course"
-                    )
-                ],
-                [InlineKeyboardButton(text="Меню", callback_data="show_menu")],
-            ],
-            resize_keyboard=True,
-        )
-
         self._cancel_keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="ОТМЕНА", callback_data="cancel")]
