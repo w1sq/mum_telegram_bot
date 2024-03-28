@@ -3,18 +3,21 @@ import shutil
 from glob import glob
 
 
-def get_course_data(course_name: str, mode: str = "quiz") -> list:
+def get_course_data(course_name: str, course_theme: str, mode: str = "quiz") -> list:
     output = []
     course_path = get_course_path(course_name)
-    with open(f"{course_path}/text.txt", "r", encoding="utf-8") as file:
+    with open(f"{course_path}/{course_theme}/text.txt", "r", encoding="utf-8") as file:
         match mode:
             case "quiz":
                 questions = list(map(lambda x: x.strip(), file.read().split("---")))
                 for question in questions:
-                    if question.startswith("Reading\n"):
+                    if (
+                        question.startswith("Reading\n")
+                        or question.startswith("Listening\n")
+                        or question.startswith("Video\n")
+                    ):
                         output.append(question)
-                    elif question.startswith("Listening\n"):
-                        output.append(question)
+                        continue
                     questions_number = len(question.split("\n"))
                     if questions_number == 5:
                         strings = question.split("\n")
@@ -57,16 +60,26 @@ def get_course_path(course_name: str):
 
 def get_sections_names() -> list[str]:
     sections = []
-    for course in glob("courses/*/", recursive=True):
+    for course in glob("courses/*/"):
         sections.append(course.split("/")[1])
     return sections
 
 
 def get_courses_names(section: str) -> list[str]:
     courses = []
-    for course in glob(f"courses/{section}/*/", recursive=True):
+    for course in glob(f"courses/{section}/*/"):
         courses.append(course.split("/")[2])
     return courses
+
+
+def get_course_themes(course_name: str) -> list[str]:
+    course_path = get_course_path(course_name)
+    themes = []
+    for content in glob(f"{course_path}/*/"):
+        name = content.split("/")[3]
+        if "." not in name:
+            themes.append(name)
+    return themes
 
 
 def get_course_info(course_name: str) -> str:
@@ -81,4 +94,4 @@ def delete_course(course_name: str):
 
 
 if __name__ == "__main__":
-    print(get_course_path("Loans and Credit"))
+    print(get_course_themes("Retail banking"))

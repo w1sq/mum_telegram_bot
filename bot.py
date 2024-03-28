@@ -25,6 +25,7 @@ from utils.parser import (
     get_course_info,
     delete_course,
     get_course_path,
+    get_course_themes,
 )
 
 
@@ -63,20 +64,18 @@ class TG_Bot:
 
     async def _show_menu(self, message: aiogram.types.Message, user: User):
         if user.role == User.ADMIN:
-            await message.answer("Меню:", reply_markup=self._menu_keyboard_admin)
+            await message.answer("Menu:", reply_markup=self._menu_keyboard_admin)
         else:
-            await message.answer(
-                "Добро пожаловать", reply_markup=self._menu_keyboard_user
-            )
+            await message.answer("Welcome back!", reply_markup=self._menu_keyboard_user)
 
     async def _show_inline_menu(self, call: CallbackQuery, user: User):
         if user.role == User.ADMIN:
             await call.message.edit_text(
-                "Меню:", reply_markup=self._menu_keyboard_admin
+                "Menu:", reply_markup=self._menu_keyboard_admin
             )
         else:
             await call.message.edit_text(
-                "Добро пожаловать", reply_markup=self._menu_keyboard_user
+                "Welcome back", reply_markup=self._menu_keyboard_user
             )
 
     async def _new_course_name(self, call: CallbackQuery, state: FSMContext):
@@ -139,13 +138,13 @@ class TG_Bot:
             for sections_name in sections_names
         ]
         sections_buttons.append(
-            [InlineKeyboardButton(text="Меню", callback_data="show_menu")]
+            [InlineKeyboardButton(text="Menu", callback_data="show_menu")]
         )
         sections_keyboard = InlineKeyboardMarkup(
             inline_keyboard=sections_buttons, resize_keyboard=True
         )
         await call.message.edit_text(
-            "Сейчас доступны следующие категории курсов:",
+            "Following sections are available:",
             reply_markup=sections_keyboard,
         )
 
@@ -158,15 +157,15 @@ class TG_Bot:
         ]
         courses_buttons.append(
             [
-                InlineKeyboardButton(text="Назад", callback_data="sections_menu"),
-                InlineKeyboardButton(text="Меню", callback_data="show_menu"),
+                InlineKeyboardButton(text="Back", callback_data="sections_menu"),
+                InlineKeyboardButton(text="Menu", callback_data="show_menu"),
             ]
         )
         courses_keyboard_user = InlineKeyboardMarkup(
             inline_keyboard=courses_buttons, resize_keyboard=True
         )
         await call.message.edit_text(
-            "Сейчас доступны следующие курсы:",
+            "Following courses are available in this section:",
             reply_markup=courses_keyboard_user,
         )
 
@@ -190,7 +189,7 @@ class TG_Bot:
                             text="Удалить курс", callback_data="?a" + course_name
                         )
                     ],
-                    [InlineKeyboardButton(text="Меню", callback_data="show_menu")],
+                    [InlineKeyboardButton(text="Menu", callback_data="show_menu")],
                 ],
                 resize_keyboard=True,
             )
@@ -203,17 +202,40 @@ class TG_Bot:
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="Купить курс", callback_data="?b" + course_name
+                            text="Purchase Course", callback_data="?b" + course_name
                         )
                     ],
-                    [InlineKeyboardButton(text="Меню", callback_data="show_menu")],
+                    [InlineKeyboardButton(text="Menu", callback_data="show_menu")],
                 ],
                 resize_keyboard=True,
             )
             await call.message.edit_text(
-                f"Курс {course_name}\n\n{get_course_info(course_name)}",
+                f"Course {course_name}\n\n{get_course_info(course_name)}",
                 reply_markup=course_keyb,
             )
+
+    async def _buy_course(self, call: CallbackQuery):
+        course_name = call.data[2:]
+        themes = get_course_themes(course_name)
+        themes_buttons = [
+            [
+                InlineKeyboardButton(
+                    text=theme, callback_data="?w" + course_name + "|" + theme
+                )
+            ]
+            for theme in themes
+        ]
+        themes_buttons.append(
+            [InlineKeyboardButton(text="Back", callback_data="?c" + course_name)]
+        )
+        course_keyb = InlineKeyboardMarkup(
+            inline_keyboard=themes_buttons,
+            resize_keyboard=True,
+        )
+        await call.message.edit_text(
+            f"Course {course_name}\n\n{get_course_info(course_name)}",
+            reply_markup=course_keyb,
+        )
 
     async def _ask_delete_course(self, call: CallbackQuery):
         course_name = call.data[2:]
@@ -244,13 +266,36 @@ class TG_Bot:
         )
 
     async def _start_course(self, call: CallbackQuery, state: FSMContext):
-        course_name = call.data[2:]
-        course_data = get_course_data(course_name)
+        course_name, theme = call.data[2:].split("|")
+        course_data = get_course_data(course_name, theme)
         i = 0
+        quit_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="QUIT", callback_data="cancel")]
+            ],
+            resize_keyboard=True,
+        )
+        quit_message = await call.message.answer(
+            "To quit the quiz press:", reply_markup=quit_keyboard
+        )
         if isinstance(course_data[i], str) and course_data[i].startswith("Listening"):
+            await call.message.answer("Listening")
+            await call.message.answer_audio(
+                aiogram.types.input_file.FSInputFile(
+                    f"{get_course_path(course_name)}/Listening/{course_data[i][10:].strip()}"
+                ),
+            )
             i += 1
         elif isinstance(course_data[i], str) and course_data[i].startswith("Reading"):
             await call.message.answer(course_data[i][8:])
+            i += 1
+        elif isinstance(course_data[i], str) and course_data[i].startswith("Video"):
+            await call.message.answer("Video")
+            await call.message.answer_video(
+                aiogram.types.input_file.FSInputFile(
+                    f"{get_course_path(course_name)}/Video/{course_data[i][6:].strip()}"
+                ),
+            )
             i += 1
         random.shuffle(course_data[i]["answers"])
         correct_option_id = course_data[i]["answers"].index(course_data[i]["correct"])
@@ -260,35 +305,38 @@ class TG_Bot:
             type="quiz",
             correct_option_id=correct_option_id,
             is_anonymous=False,
-            explanation=course_data[i].get("hint", "")[:200],
         )
         await state.set_state(QuizState.quiz)
         await state.update_data(course_name=course_name)
+        await state.update_data(quit_message_id=quit_message.message_id)
         await state.update_data(correct_option_id=correct_option_id)
-        await state.update_data(course_data=course_data[i + 1 :])
+        await state.update_data(course_data=course_data[i:])
 
     async def handle_poll_answer(self, quiz_answer: PollAnswer, state: FSMContext):
         state_data = await state.get_data()
         course_data = state_data["course_data"]
-        if len(course_data) == 0:
+        if state_data["correct_option_id"] != quiz_answer.option_ids[0]:
             await self._bot.send_message(
                 quiz_answer.user.id,
-                "Congratulations! Course is completed, you are always able to rerun it",
+                "It's a pity, you made a mistake\n\n" + course_data[0].get("hint", ""),
+            )
+        elif (
+            state_data["correct_option_id"] == quiz_answer.option_ids[0]
+            and len(course_data) > 1
+        ):
+            await self._bot.send_message(quiz_answer.user.id, "Correct! Next question")
+        if len(course_data) == 1:
+            await self._bot.delete_message(
+                chat_id=quiz_answer.user.id, message_id=state_data["quit_message_id"]
+            )
+            await state.clear()
+            await self._bot.send_message(
+                quiz_answer.user.id,
+                "Congratulations! Theme is completed, you are always able to rerun it",
                 reply_markup=self._to_menu_keyboard_user,
             )
         else:
-            if (
-                state_data["correct_option_id"] == quiz_answer.option_ids[0]
-            ):  # TODO Комментарии к ответам
-                await self._bot.send_message(
-                    quiz_answer.user.id, "Correct! Next question"
-                )
-            else:
-                await self._bot.send_message(
-                    quiz_answer.user.id,
-                    "It's a pity, you made a mistake",
-                )
-            i = 0
+            i = 1
             if isinstance(course_data[i], str) and course_data[i].startswith(
                 "Listening"
             ):
@@ -296,7 +344,7 @@ class TG_Bot:
                 await self._bot.send_audio(
                     quiz_answer.user.id,
                     aiogram.types.input_file.FSInputFile(
-                        f"{get_course_path(state_data['course_name'])}/{course_data[i][10:].strip()}"
+                        f"{get_course_path(state_data['course_name'])}/Listening/{course_data[i][10:].strip()}"
                     ),
                 )
                 i += 1
@@ -306,6 +354,20 @@ class TG_Bot:
                 await self._bot.send_message(quiz_answer.user.id, "Reading")
                 await self._bot.send_message(quiz_answer.user.id, course_data[i][8:])
                 i += 1
+            elif isinstance(course_data[i], str) and course_data[i].startswith("Video"):
+                await self._bot.send_message(quiz_answer.user.id, "Video")
+                print(course_data[i][6:].strip())
+                await self._bot.send_video(
+                    quiz_answer.user.id,
+                    aiogram.types.input_file.FSInputFile(
+                        f"{get_course_path(state_data['course_name'])}/Video/{course_data[i][6:].strip()}"
+                    ),
+                )
+                i += 1
+            random.shuffle(course_data[i]["answers"])
+            correct_option_id = course_data[i]["answers"].index(
+                course_data[i]["correct"]
+            )
             random.shuffle(course_data[i]["answers"])
             correct_option_id = course_data[i]["answers"].index(
                 course_data[i]["correct"]
@@ -317,10 +379,9 @@ class TG_Bot:
                 type="quiz",
                 correct_option_id=correct_option_id,
                 is_anonymous=False,
-                explanation=course_data[i].get("hint", ""),
             )
             await state.update_data(correct_option_id=correct_option_id)
-            await state.update_data(course_data=course_data[i + 1 :])
+            await state.update_data(course_data=course_data[i:])
 
     async def _init_massmsg(self, call: CallbackQuery, state: FSMContext):
         await call.message.edit_text(
@@ -348,7 +409,7 @@ class TG_Bot:
     async def _cancel(self, call: CallbackQuery, state: FSMContext):
         if state is not None:
             await state.clear()
-            await call.answer("Отмена")
+            await call.answer("RETURNING TO MENU")
         await self._bot.edit_message_reply_markup(
             call.message.chat.id, call.message.message_id
         )
@@ -380,7 +441,10 @@ class TG_Bot:
             aiogram.F.data.startswith("?s"),
         )
         self._dispatcher.callback_query.register(
-            self._start_course, aiogram.F.data.startswith("?b")
+            self._buy_course, aiogram.F.data.startswith("?b")
+        )
+        self._dispatcher.callback_query.register(
+            self._start_course, aiogram.F.data.startswith("?w")
         )
         self._dispatcher.callback_query.register(
             self._ask_delete_course, aiogram.F.data.startswith("?a")
@@ -446,19 +510,19 @@ class TG_Bot:
     def _create_keyboards(self):
         self._to_menu_keyboard_user = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Меню", callback_data="show_menu")]
+                [InlineKeyboardButton(text="Menu", callback_data="show_menu")]
             ],
             resize_keyboard=True,
         )
         self._menu_keyboard_user = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Курсы", callback_data="sections_menu")]
+                [InlineKeyboardButton(text="Sections", callback_data="sections_menu")]
             ],
             resize_keyboard=True,
         )
         self._menu_keyboard_admin = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Курсы", callback_data="sections_menu")],
+                [InlineKeyboardButton(text="Sections", callback_data="sections_menu")],
                 [
                     InlineKeyboardButton(
                         text="Создать новый курс", callback_data="upload_new_course"
