@@ -324,7 +324,10 @@ class TG_Bot:
             state_data["correct_option_id"] == quiz_answer.option_ids[0]
             and len(course_data) > 1
         ):
-            await self._bot.send_message(quiz_answer.user.id, "Correct! Next question")
+            await self._bot.send_message(
+                quiz_answer.user.id,
+                "Correct! Next question\n\nP.S.\n" + course_data[0].get("hint", ""),
+            )
         if len(course_data) == 1:
             await self._bot.delete_message(
                 chat_id=quiz_answer.user.id, message_id=state_data["quit_message_id"]
